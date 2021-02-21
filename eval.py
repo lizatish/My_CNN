@@ -192,4 +192,4 @@ def chop_forward(x, model, scale, shave=8, min_size=80000, nGPUs=opt.gpus):
 
 
 ##Eval Start!!!!
-eval()
+# eval()
