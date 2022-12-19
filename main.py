@@ -1,24 +1,23 @@
 from __future__ import print_function
+
 import argparse
+import os
+import socket
+import time
 from math import log10
 
-import os
 import torch
+import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
-import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
+from data import get_training_set
+from dbpn_iterative import Net as DBPNITER
+from dbpn_v1 import Net as DBPNLL
 from eval import testing_data_loader
 from tishkovets_cnn import Net as TISHKOVETS_NET
-from dbpn_v1 import Net as DBPNLL
-from dbpns import Net as DBPNS
-from dbpn_iterative import Net as DBPNITER
-from data import get_training_set
-import pdb
-import socket
-import time
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch Super Res Example')
@@ -38,7 +37,8 @@ parser.add_argument('--hr_train_dataset', type=str, default='div2k/DIV2K_train_H
 parser.add_argument('--model_type', type=str, default='DBPN')
 parser.add_argument('--residual', type=bool, default=True)
 parser.add_argument('--patch_size', type=int, default=40, help='Size of cropped HR image')
-parser.add_argument('--pretrained_sr', default='MIX2K_LR_aug_x4dl10DBPNITERtpami_epoch_399.pth', help='sr pretrained base model')
+parser.add_argument('--pretrained_sr', default='MIX2K_LR_aug_x4dl10DBPNITERtpami_epoch_399.pth',
+                    help='sr pretrained base model')
 parser.add_argument('--pretrained', type=bool, default=False)
 parser.add_argument('--save_folder', default='weights/', help='Location to save checkpoint models')
 parser.add_argument('--prefix', default='tpami_residual_filter8', help='Location to save checkpoint models')
@@ -48,6 +48,7 @@ gpus_list = range(opt.gpus)
 hostname = str(socket.gethostname())
 cudnn.benchmark = True
 print(opt)
+
 
 def train(epoch):
     epoch_loss = 0
@@ -72,7 +73,9 @@ def train(epoch):
         loss.backward()
         optimizer.step()
 
-        print("===> Epoch[{}]({}/{}): Loss: {:.4f} || Timer: {:.4f} sec.".format(epoch, iteration, len(training_data_loader), loss.data, (t1 - t0)))
+        print("===> Epoch[{}]({}/{}): Loss: {:.4f} || Timer: {:.4f} sec.".format(epoch, iteration,
+                                                                                 len(training_data_loader), loss.data,
+                                                                                 (t1 - t0)))
 
     print("===> Epoch {} Complete: Avg. Loss: {:.4f}".format(epoch, epoch_loss / len(training_data_loader)))
 
@@ -91,6 +94,7 @@ def test():
         avg_psnr += psnr
     print("===> Avg. PSNR: {:.4f} dB".format(avg_psnr / len(testing_data_loader)))
 
+
 def print_network(net):
     num_params = 0
     for param in net.parameters():
@@ -98,10 +102,13 @@ def print_network(net):
     print(net)
     print('Total number of parameters: %d' % num_params)
 
+
 def checkpoint(epoch):
-    model_out_path = opt.save_folder+opt.train_dataset+hostname+opt.model_type+opt.prefix+"_epoch_{}.pth".format(epoch)
+    model_out_path = opt.save_folder + opt.train_dataset + hostname + opt.model_type + opt.prefix + "_epoch_{}.pth".format(
+        epoch)
     torch.save(model.state_dict(), model_out_path)
     print("Checkpoint saved to {}".format(model_out_path))
+
 
 cuda = opt.gpu_mode
 if cuda and not torch.cuda.is_available():
@@ -112,17 +119,18 @@ if cuda:
     torch.cuda.manual_seed(opt.seed)
 
 print('===> Loading datasets')
-train_set = get_training_set(opt.data_dir, opt.hr_train_dataset, opt.upscale_factor, opt.patch_size, opt.data_augmentation)
+train_set = get_training_set(opt.data_dir, opt.hr_train_dataset, opt.upscale_factor, opt.patch_size,
+                             opt.data_augmentation)
 training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True)
 
 print('===> Building model ', opt.model_type)
 if opt.model_type == 'DBPNLL':
-    model = DBPNLL(num_channels=3, base_filter=64,  feat = 256, num_stages=10, scale_factor=opt.upscale_factor) 
+    model = DBPNLL(num_channels=3, base_filter=64, feat=256, num_stages=10, scale_factor=opt.upscale_factor)
 elif opt.model_type == 'DBPN-RES-MR64-3':
-    model = DBPNITER(num_channels=3, base_filter=64,  feat = 256, num_stages=3, scale_factor=opt.upscale_factor)
+    model = DBPNITER(num_channels=3, base_filter=64, feat=256, num_stages=3, scale_factor=opt.upscale_factor)
 else:
-    model = TISHKOVETS_NET(num_channels=3, base_filter=64, feat = 256)
-    
+    model = TISHKOVETS_NET(num_channels=3, base_filter=64, feat=256)
+
 model = torch.nn.DataParallel(model, device_ids=gpus_list)
 criterion = nn.L1Loss()
 
@@ -133,7 +141,7 @@ print('----------------------------------------------')
 if opt.pretrained:
     model_name = os.path.join(opt.save_folder + opt.pretrained_sr)
     if os.path.exists(model_name):
-        #model= torch.load(model_name, map_location=lambda storage, loc: storage)
+        # model= torch.load(model_name, map_location=lambda storage, loc: storage)
         model.load_state_dict(torch.load(model_name, map_location=lambda storage, loc: storage))
         print('Pre-trained SR model is loaded.')
 
@@ -147,10 +155,10 @@ for epoch in range(opt.start_iter, opt.nEpochs + 1):
     test()
 
     # learning rate is decayed by a factor of 10 every half of total epochs
-    if (epoch+1) % (opt.nEpochs/2) == 0:
+    if (epoch + 1) % (opt.nEpochs / 2) == 0:
         for param_group in optimizer.param_groups:
             param_group['lr'] /= 10.0
         print('Learning rate decay: lr={}'.format(optimizer.param_groups[0]['lr']))
-            
-    if (epoch+1) % (opt.snapshots) == 0:
+
+    if (epoch + 1) % (opt.snapshots) == 0:
         checkpoint(epoch)
